@@ -1,0 +1,30 @@
+@{
+    SchemaVersion       = "2.0.0"
+    GUID                = "a1b2c3d4-1234-5678-90ab-cdef12345678"
+    Author              = "IT Security Team"
+    CompanyName         = "Voice-WebUI"
+    Copyright           = "(c) 2026 noualit"
+    Description         = "Endpoint JEA restringido para diagnostico remoto via MCP. Ejecuta como Virtual Account. Solo comandos de solo-lectura."
+
+    # Tipo de sesion: restringida, sin shell interactiva completa
+    SessionType         = "RestrictedRemoteServer"
+
+    # Ejecuta como cuenta virtual (no necesita credenciales locales)
+    RunAsVirtualAccount = $true
+
+    # Transcripciones de auditoria
+    TranscriptDirectory = "C:\ProgramData\JEA\Transcripts"
+
+    # Idioma de la sesion
+    LanguageMode        = "NoLanguage"
+
+    # Scripts de inicializacion (vacios por seguridad)
+    ScriptsToProcess    = @()
+
+    # Asignacion de roles: solo la cuenta de servicio del MCP
+    RoleDefinitions     = @{
+        "EXAMPLE\svc-mcp-diag" = @{
+            RoleCapabilityFiles = "C:\Program Files\WindowsPowerShell\Modules\JEADiagnostics\RoleCapabilities\Diagnostics.psrc"
+        }
+    }
+}

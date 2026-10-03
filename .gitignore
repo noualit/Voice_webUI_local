@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+.env
+config.json
+config.json.bak
+config copy.json
+mcp-config.json
+*.log
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Archivos de Windows
+Thumbs.db
+
+# Artefactos temporales de Playwright (verificacion E2E)
+.playwright-mcp/
+
+# Worktrees aislados para desarrollo (superpowers)
+.worktrees/
+
+# Archivos subidos por el usuario (adjuntos de conversacion)
+uploads/
+
+# --- Ramana publica -------------------------------------------------------
+# Registros de sesion: bitacoras de diagnostico con topologia real de la red y
+# del dominio. Son la parte que NO se publica, asi que se ignoran por completo
+# para que ni por descuido acabe en un commit.
+docs/sesiones/
+
+# Binarios y capturas. Los PDF de docs/ salen de conversaciones reales con
+# datos de Active Directory; no aportan nada al repo y no se pueden sanear.
+*.pdf
+capturas/
+.screenshots/
+
+# Credenciales de sesion de la UI (mismo motivo que .env)
+cookies.txt

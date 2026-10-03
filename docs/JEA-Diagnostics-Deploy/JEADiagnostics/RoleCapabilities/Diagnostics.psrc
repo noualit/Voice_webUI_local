@@ -1,0 +1,149 @@
+@{
+    # Metadata
+    GUID                = "b2c3d4e5-2345-6789-01bc-defa23456789"
+    Author              = "IT Security Team"
+    CompanyName         = "Voice-WebUI"
+    Copyright           = "(c) 2026 noualit"
+    Description         = "Permisos minimos para diagnostico remoto via MCP/WinRM. Solo lectura y diagnostico. Ningun comando de modificacion."
+
+    # ============================================================
+    # COMANDOS PERMITIDOS — Solo diagnostico, NUNCA modificacion
+    # ============================================================
+    VisibleCmdlets = @(
+        # --- Informacion del sistema ---
+        "Get-ComputerInfo"
+        "Get-HotFix"
+        "Get-Date"
+        "Get-TimeZone"
+        "Get-Uptime"
+
+        # --- Procesos y rendimiento ---
+        "Get-Process"
+        "Get-Counter"
+
+        # --- Servicios (solo lectura) ---
+        "Get-Service"
+
+        # --- Event Logs ---
+        "Get-EventLog"
+        "Get-WinEvent"
+
+        # --- Red ---
+        "Get-NetAdapter"
+        "Get-NetIPAddress"
+        "Get-NetRoute"
+        "Get-DnsClientServerAddress"
+        "Test-Connection"
+        "Resolve-DnsName"
+        "Test-NetConnection"
+
+        # --- Almacenamiento ---
+        "Get-Disk"
+        "Get-Volume"
+        "Get-Partition"
+        "Get-PhysicalDisk"
+
+        # --- WMI/CIM (solo Get) ---
+        "Get-WmiObject"
+        "Get-CimInstance"
+        "Invoke-CimMethod"   # Solo metodos de solo-lectura; JEA filtra por verb
+
+        # --- Archivos (SOLO lectura) ---
+        "Get-ChildItem"
+        "Get-Content"
+        "Get-Item"
+        "Get-ItemProperty"
+        "Test-Path"
+
+        # --- Utilidades de pipeline ---
+        "Select-Object"
+        "Where-Object"
+        "Sort-Object"
+        "Group-Object"
+        "Measure-Object"
+        "Compare-Object"
+        "ForEach-Object"
+        "Tee-Object"
+
+        # --- Formateo ---
+        "Format-List"
+        "Format-Table"
+        "Format-Wide"
+        "Out-String"
+        "Out-File"           # Solo para transcripciones locales
+        "Write-Output"
+        "Write-Host"
+
+        # --- Variables y utilidades ---
+        "Get-Variable"
+        "Get-Command"
+        "Get-Help"
+        "Get-Member"
+    )
+
+    # ============================================================
+    # FUNCIONES VISIBLES
+    # ============================================================
+    VisibleFunctions = @(
+        "prompt"
+        "TabExpansion2"
+    )
+
+    # ============================================================
+    # COMANDOS EXTERNOS PROHIBIDOS
+    # ============================================================
+    VisibleExternalCommands = @()
+
+    # ============================================================
+    # ALIAS PERMITIDOS
+    # ============================================================
+    VisibleAliases = @(
+        "gc"
+        "gci"
+        "gps"
+        "gsv"
+        "gwmi"
+        "select"
+        "where"
+        "sort"
+        "group"
+        "measure"
+        "fl"
+        "ft"
+        "fw"
+    )
+
+    # ============================================================
+    # VARIABLES DE ENTORNO
+    # ============================================================
+    EnvironmentVariables = @{
+        "COMPUTERNAME" = $env:COMPUTERNAME
+        "USERDOMAIN"   = $env:USERDOMAIN
+        "USERNAME"     = $env:USERNAME
+    }
+
+    # ============================================================
+    # MODULOS PERMITIDOS
+    # ============================================================
+    ModulesToImport = @(
+        "Microsoft.PowerShell.Management"
+        "Microsoft.PowerShell.Utility"
+        "CimCmdlets"
+        "NetAdapter"
+        "NetTCPIP"
+        "DnsClient"
+        "Storage"
+        "Microsoft.PowerShell.Diagnostics"
+    )
+
+    # ============================================================
+    # SCRIPTS PROHIBIDOS
+    # ============================================================
+    ScriptsToProcess = @()
+
+    # ============================================================
+    # TIPOS Y FORMATOS PERMITIDOS
+    # ============================================================
+    TypesToProcess  = @()
+    FormatsToProcess = @()
+}

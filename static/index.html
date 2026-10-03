@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice-WebUI</title>
+<link rel="stylesheet" href="/style.css">
+
+<!-- chatState, metricsState, attachments, chatStream - NO dependen de Alpine -->
+<script src="/chatState.js"></script>
+<script src="/metricsState.js"></script>
+<script src="/attachments.js"></script>
+<script src="/chatStream.js"></script>
+
+<!-- Registrar voiceApp ANTES de que Alpine escanee el DOM -->
+<!-- alpine:init se emite justo antes de escanear el DOM -->
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("voiceApp", () => ({ ...chatState(), ...metricsState(), ...attachmentState() }));
+  });
+</script>
+
+<!-- Alpine con defer -->
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+<!-- app.js con defer (inicializacion manual despues de alpine:init) -->
+<script defer src="/app.js"></script>
+</head>
+<body x-data="voiceApp" x-init="init()">
+  <!-- Login overlay -->
+  <div class="login-overlay" x-show="!user" x-cloak>
+    <div class="login-box">
+      <h2>Acceso</h2>
+      <p class="login-hint">Introduce tu nombre para acceder a tus conversaciones.</p>
+      <input class="text-input" type="text" x-model="loginName" @keydown.enter="login()"
+             placeholder="Tu nombre">
+      <button class="btn btn-primary btn-block" @click="login()">Entrar</button>
+    </div>
+  </div>
+
+  <!-- Modal de aprobacion de tools peligrosas (p.ej. run_command). El backend
+       espera la decision del usuario antes de ejecutar la tool; Bloquear es la
+       opcion segura por defecto (fail-safe). -->
+  <div class="approval-overlay" x-show="approval !== null" x-cloak>
+    <div class="approval-box">
+      <h3>Permiso requerido</h3>
+      <p class="approval-hint">La herramienta <b x-text="approval?.tool"></b> quiere ejecutar:</p>
+      <pre class="approval-args" x-text="approval ? JSON.stringify(approval.arguments, null, 2) : ''"></pre>
+      <div class="approval-actions">
+        <button class="btn btn-danger" @click="respondApproval(false)">Bloquear</button>
+        <button class="btn btn-primary" @click="respondApproval(true)">Permitir</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" :class="{'open': sidebarOpen}">
+      <div class="sidebar-header">
+        <h2>Conversaciones</h2>
+        <button class="btn btn-new" @click="newChat()">+ Nueva</button>
+      </div>
+      <div class="sidebar-list">
+        <template x-for="conv in conversations" :key="conv.id">
+          <div class="conv-item" :class="{'active': conv.id === currentConvId}"
+               @click="openConversation(conv.id)">
+            <div class="conv-main">
+              <div class="conv-name-row">
+                <span class="conv-name" x-text="conv.name"></span>
+                <!-- Spinner animado: indica que esta conversacion esta generando
+                     respuesta (visible solo mientras loading). -->
+                <span class="conv-spinner" x-show="loading && conv.id === currentConvId"
+                      title="Generando respuesta..."></span>
+                <button class="btn btn-sm" title="Cambiar titulo"
+                        @click.stop="editConversationTitle(conv.id, conv.name)">✎</button>
+              </div>
+              <div class="conv-meta" x-text="conv.updated_at ? new Date(conv.updated_at).toLocaleString() : ''"></div>
+            </div>
+            <button class="btn btn-danger btn-del" title="Eliminar"
+                    @click.stop="deleteConversation(conv.id)">x</button>
+          </div>
+        </template>
+        <div x-show="conversations.length === 0" class="empty-state">
+          No hay conversaciones
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <span class="user-name" x-text="user ? 'Usuario: ' + user : ''"></span>
+          <button class="btn btn-config" @click="showConfig = !showConfig">Configuracion</button>
+          <button class="btn btn-logout" x-show="user" @click="logout()">Salir</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- Top bar -->
+      <div class="topbar">
+        <button class="btn btn-toggle" @click="sidebarOpen = !sidebarOpen">&#9776;</button>
+        <div class="status">
+          <span class="dot" :class="{'online': memoryOnline}"></span>
+          <span x-text="statusText">Listo</span>
+        </div>
+        <div class="mcp-bar" title="Servidores MCP">
+          <template x-for="srv in mcpServers" :key="srv.name">
+            <span class="mcp-chip" :class="{'online': srv.online}">
+              <span class="dot" :class="{'online': srv.online}"></span>
+              <span x-text="srv.name"></span>
+              <span class="mcp-tools" x-text="'(' + srv.tools + ')'"></span>
+            </span>
+          </template>
+          <span x-show="mcpServers.length === 0" class="mcp-empty">Sin MCPs</span>
+        </div>
+        <button class="btn btn-export" @click="exportConversation()"
+                :disabled="!currentConvId" title="Exportar conversacion a PDF">PDF</button>
+        <div class="model-info" x-text="model"></div>
+      </div>
+
+      <!-- Chat area -->
+      <div class="chat" id="chatArea">
+        <template x-for="(msg, i) in messages" :key="i">
+          <div class="msg" :class="'msg-' + msg.role">
+            <template x-if="msg.role === 'tool'">
+              <div class="tool-call" x-data="{ expanded: false }">
+                <button class="tool-call-head" @click="expanded = !expanded">
+                  <span class="tool-call-name" x-text="msg.name"></span>
+                  <span class="tool-call-toggle" x-text="expanded ? '\u25B2' : '\u25BC'"></span>
+                </button>
+                <div class="tool-call-body" x-show="expanded">
+                  <template x-if="msg.arguments">
+                    <div class="tool-call-section">
+                      <b>Argumentos</b>
+                      <pre x-text="msg.arguments"></pre>
+                    </div>
+                  </template>
+                  <div class="tool-call-section">
+                    <b>Resultado</b>
+                    <pre x-text="msg.result"></pre>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template x-if="msg.role === 'user'">
+              <div class="msg-user-wrap">
+                <div class="msg-user-row">
+                  <button class="btn btn-reload" @click="resendMessage(i)" title="Regenerar respuesta"
+                          x-show="hasAssistantAfter(i)">↻</button>
+                  <div class="msg-text" x-text="msg.content"></div>
+                </div>
+                <template x-if="msg.attachments && msg.attachments.length > 0">
+                  <div class="msg-attachments">
+                    <template x-for="(att, i) in msg.attachments" :key="i">
+                      <span class="attachment-chip" title="Archivo adjunto">
+                        <span x-text="att.name"></span>
+                      </span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="msg.role === 'assistant'">
+              <div class="msg-assistant-wrap">
+                <div class="msg-text" x-text="msg.content"></div>
+              </div>
+            </template>
+            <template x-if="msg.role === 'error'">
+              <div class="msg-text" x-text="msg.content"></div>
+            </template>
+          </div>
+        </template>
+       <div x-show="currentConvId !== null && messages.length === 0" class="empty-chat">
+          <div class="empty-chat-icon">&#9993;</div>
+          <p class="empty-chat-title">Conversacion vacia</p>
+          <p class="empty-chat-hint">Escribe un mensaje para empezar a chatear.</p>
+        </div>
+        <div x-show="loading" class="msg msg-bot typing">Pensando...</div>
+      </div>
+
+      <!-- Input area -->
+      <div class="input-area">
+        <button class="btn btn-mic" :class="{ recording: recording }" @click="toggleRec()"
+                x-text="recording ? 'Detener' : 'Hablar'"></button>
+        <button class="btn btn-attach" title="Adjuntar archivo"
+                @click="$refs.fileInput.click()">+</button>
+        <input class="hidden-file" type="file" multiple
+               x-ref="fileInput" @change="attachmentState().attachFiles($event)">
+        <input class="text-input" type="text" x-model="draft" @keydown.enter="sendText()"
+               placeholder="Escribe o habla..." :disabled="loading">
+        <button class="btn btn-stop" x-show="loading" @click="stopChat()">Stop</button>
+        <button class="btn btn-send" @click="sendText()" :disabled="loading">Enviar</button>
+
+        <!-- Chips de archivos pendientes de envio -->
+        <div class="attachments-pending" x-show="attachmentState().pendingAttachments.length > 0">
+          <template x-for="(file, i) in attachmentState().pendingAttachments" :key="i">
+            <span class="attachment-chip">
+              <span x-text="file.name"></span>
+              <button class="btn btn-sm btn-danger" @click="attachmentState().removePendingAttachment(i)" title="Eliminar">×</button>
+            </span>
+          </template>
+        </div>
+
+        <!-- Metricas de generacion (estilo llama-server): tokens y tok/s reales.
+             Se muestran durante la generacion (estimadas) y se conservan al
+             terminar para ver los valores finales reales. -->
+        <div class="metrics-bar"
+              x-show="loading ? metrics.chars > 0 : metrics.tokens > 0">
+          <template x-if="loading">
+            <span class="metric" x-text="'~' + metrics.tokens_est + ' tok'"></span>
+          </template>
+          <template x-if="!loading">
+            <span class="metric" x-text="metrics.tokens + ' tok'"></span>
+          </template>
+          <span class="metric" x-text="metrics.tokens_per_sec.toFixed(1) + ' tok/s'"></span>
+          <span class="metric" x-text="metrics.elapsed_ms + ' ms'"></span>
+        </div>
+      </div>
+    </main>
+
+    <!-- Config panel -->
+    <div class="config-panel" x-show="showConfig" @click.self="showConfig = false">
+      <div class="config-content">
+        <h3>Configuracion</h3>
+
+        <div class="config-section">
+          <label>System Prompt</label>
+          <textarea x-model="settings.system_prompt" rows="8"></textarea>
+        </div>
+
+        <div class="config-section">
+          <label>LLM URL</label>
+          <input type="text" x-model="settings.llama_url">
+        </div>
+
+        <div class="config-section">
+          <label>Modelo</label>
+          <input type="text" x-model="settings.model">
+        </div>
+
+
+
+        <div class="config-section">
+          <button class="btn btn-primary" @click="saveConfig()">Guardar config</button>
+        </div>
+
+        <div class="config-section">
+          <h4>Servidores MCP</h4>
+          <template x-for="srv in mcpServers" :key="srv.name">
+            <div class="mcp-row">
+              <span>
+                <span class="dot" :class="{'online': srv.online}"></span>
+                <span x-text="srv.name"></span>
+                <span class="mcp-tools" x-text="'(' + srv.tools + ' tools)'"></span>
+              </span>
+              <button class="btn btn-del btn-danger" @click="removeMCP(srv.name)">x</button>
+            </div>
+          </template>
+          <span x-show="mcpServers.length === 0" class="mcp-empty">Sin MCPs</span>
+        </div>
+
+        <div class="config-section">
+          <h4>Agregar MCP</h4>
+          <label>Nombre</label>
+          <input type="text" x-model="newMcp.name" placeholder="nombre-del-server">
+          <label>Transporte</label>
+          <select x-model="newMcp.transport">
+            <option value="stdio">stdio (subprocess)</option>
+            <option value="http">http</option>
+            <option value="sse">sse</option>
+          </select>
+          <template x-if="newMcp.transport === 'stdio'">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label>Comando</label>
+              <input type="text" x-model="newMcp.command" placeholder="python o npx">
+              <label>Argumentos (JSON array)</label>
+              <input type="text" x-model="newMcp.args" placeholder='["-m", "server"]'>
+            </div>
+          </template>
+          <template x-if="newMcp.transport !== 'stdio'">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label>URL</label>
+              <input type="text" x-model="newMcp.url" placeholder="http://localhost:8111/mcp">
+              <label>Headers (JSON object, opcional)</label>
+              <input type="text" x-model="newMcp.headers" placeholder='{"Authorization": "Bearer x"}'>
+              <label>Timeout (segundos)</label>
+              <input type="number" x-model="newMcp.timeout" step="1" min="1">
+            </div>
+          </template>
+          <button class="btn btn-primary" @click="addMCP()">Agregar MCP</button>
+        </div>
+
+ 
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>
